@@ -1,5 +1,5 @@
 /**
- * logger.ts - 全链路日志系统 v3
+ * logger.ts - 全链路日志系统 v4
  *
  * 核心升级：
  * - 存储完整的请求参数（messages, system prompt, tools）
@@ -7,10 +7,16 @@
  * - 存储转换后的 Cursor 请求
  * - 阶段耗时追踪 (Phase Timing)
  * - TTFT (Time To First Token)
+ * - 用户问题标题提取
+ * - 日志文件持久化（JSONL 格式，可配置开关）
+ * - 日志清空操作
  * - 全部通过 Web UI 可视化
  */
 
 import { EventEmitter } from 'events';
+import { existsSync, mkdirSync, appendFileSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'fs';
+import { join, basename } from 'path';
+import { getConfig } from './config.js';
 
 // ==================== 类型定义 ====================
 
@@ -100,6 +106,8 @@ export interface RequestSummary {
     phaseTimings: PhaseTiming[];
     thinkingChars: number;
     systemPromptLength: number;
+    /** 用户提问标题（截取最后一个 user 消息的前 80 字符） */
+    title?: string;
 }
 
 // ==================== 存储 ====================
@@ -121,6 +129,129 @@ function shortId(): string {
     let id = '';
     for (let i = 0; i < 8; i++) id += chars[Math.floor(Math.random() * chars.length)];
     return id;
+}
+
+// ==================== 日志文件持久化 ====================
+
+function getLogDir(): string | null {
+    const cfg = getConfig();
+    if (!cfg.logging?.file_enabled) return null;
+    return cfg.logging.dir || './logs';
+}
+
+function getLogFilePath(): string | null {
+    const dir = getLogDir();
+    if (!dir) return null;
+    const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    return join(dir, `cursor2api-${date}.jsonl`);
+}
+
+function ensureLogDir(): void {
+    const dir = getLogDir();
+    if (dir && !existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+    }
+}
+
+/** 将已完成的请求写入日志文件 */
+function persistRequest(summary: RequestSummary, payload: RequestPayload): void {
+    const filepath = getLogFilePath();
+    if (!filepath) return;
+    try {
+        ensureLogDir();
+        const record = { timestamp: Date.now(), summary, payload };
+        appendFileSync(filepath, JSON.stringify(record) + '\n', 'utf-8');
+    } catch (e) {
+        console.warn('[Logger] 写入日志文件失败:', e);
+    }
+}
+
+/** 启动时从日志文件加载历史记录 */
+export function loadLogsFromFiles(): void {
+    const dir = getLogDir();
+    if (!dir || !existsSync(dir)) return;
+    try {
+        const cfg = getConfig();
+        const maxDays = cfg.logging?.max_days || 7;
+        const cutoff = Date.now() - maxDays * 86400000;
+        
+        const files = readdirSync(dir)
+            .filter(f => f.startsWith('cursor2api-') && f.endsWith('.jsonl'))
+            .sort(); // 按日期排序
+        
+        // 清理过期文件
+        for (const f of files) {
+            const dateStr = f.replace('cursor2api-', '').replace('.jsonl', '');
+            const fileDate = new Date(dateStr).getTime();
+            if (fileDate < cutoff) {
+                try { unlinkSync(join(dir, f)); } catch { /* ignore */ }
+                continue;
+            }
+        }
+        
+        // 加载有效文件（最多最近2个文件）
+        const validFiles = readdirSync(dir)
+            .filter(f => f.startsWith('cursor2api-') && f.endsWith('.jsonl'))
+            .sort()
+            .slice(-2);
+        
+        let loaded = 0;
+        for (const f of validFiles) {
+            const content = readFileSync(join(dir, f), 'utf-8');
+            const lines = content.split('\n').filter(Boolean);
+            for (const line of lines) {
+                try {
+                    const record = JSON.parse(line);
+                    if (record.summary && record.summary.requestId) {
+                        const s = record.summary as RequestSummary;
+                        const p = record.payload as RequestPayload || {};
+                        if (!requestSummaries.has(s.requestId)) {
+                            requestSummaries.set(s.requestId, s);
+                            requestPayloads.set(s.requestId, p);
+                            requestOrder.push(s.requestId);
+                            loaded++;
+                        }
+                    }
+                } catch { /* skip malformed lines */ }
+            }
+        }
+        
+        // 裁剪到 MAX_REQUESTS
+        while (requestOrder.length > MAX_REQUESTS) {
+            const oldId = requestOrder.shift()!;
+            requestSummaries.delete(oldId);
+            requestPayloads.delete(oldId);
+        }
+        
+        if (loaded > 0) {
+            console.log(`[Logger] 从日志文件加载了 ${loaded} 条历史记录`);
+        }
+    } catch (e) {
+        console.warn('[Logger] 加载日志文件失败:', e);
+    }
+}
+
+/** 清空所有日志（内存 + 文件） */
+export function clearAllLogs(): { cleared: number } {
+    const count = requestSummaries.size;
+    logEntries.length = 0;
+    requestSummaries.clear();
+    requestPayloads.clear();
+    requestOrder.length = 0;
+    logCounter = 0;
+    
+    // 清空日志文件
+    const dir = getLogDir();
+    if (dir && existsSync(dir)) {
+        try {
+            const files = readdirSync(dir).filter(f => f.startsWith('cursor2api-') && f.endsWith('.jsonl'));
+            for (const f of files) {
+                try { unlinkSync(join(dir, f)); } catch { /* ignore */ }
+            }
+        } catch { /* ignore */ }
+    }
+    
+    return { cleared: count };
 }
 
 // ==================== 统计 ====================
@@ -321,6 +452,28 @@ export class RequestLogger {
                 }
                 return { role: m.role, contentPreview: fullContent, contentLength, hasImages };
             });
+            
+            // ★ 提取用户问题标题：取最后一个 user 消息的真实提问
+            const userMsgs = body.messages.filter((m: any) => m.role === 'user');
+            if (userMsgs.length > 0) {
+                const lastUser = userMsgs[userMsgs.length - 1];
+                let text = '';
+                if (typeof lastUser.content === 'string') {
+                    text = lastUser.content;
+                } else if (Array.isArray(lastUser.content)) {
+                    text = lastUser.content
+                        .filter((c: any) => c.type === 'text')
+                        .map((c: any) => c.text || '')
+                        .join(' ');
+                }
+                // 去掉 <system-reminder>...</system-reminder> 注入内容
+                text = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '');
+                // 去掉 Claude Code 尾部的 "First, think step by step..." 引导语
+                text = text.replace(/First,\s*think\s+step\s+by\s+step[\s\S]*$/i, '');
+                // 清理换行、多余空格
+                text = text.replace(/\s+/g, ' ').trim();
+                this.summary.title = text.length > 80 ? text.substring(0, 77) + '...' : text;
+            }
         }
         
         // tools
@@ -439,6 +592,9 @@ export class RequestLogger {
         this.log('info', 'System', 'complete', `完成 (${duration}ms, ${responseChars} chars, stop=${stopReason})`);
         logEmitter.emit('summary', this.summary);
         
+        // ★ 持久化到文件
+        persistRequest(this.summary, this.payload);
+        
         const retryInfo = this.summary.retryCount > 0 ? ` retry=${this.summary.retryCount}` : '';
         const contInfo = this.summary.continuationCount > 0 ? ` cont=${this.summary.continuationCount}` : '';
         const toolInfo = this.summary.toolCallsDetected > 0 ? ` tools_called=${this.summary.toolCallsDetected}` : '';
@@ -451,6 +607,7 @@ export class RequestLogger {
         this.summary.endTime = Date.now();
         this.log('info', 'System', 'intercept', reason);
         logEmitter.emit('summary', this.summary);
+        persistRequest(this.summary, this.payload);
         console.log(`\x1b[35m⊘\x1b[0m [${this.requestId}] 拦截: ${reason}`);
     }
     
@@ -461,5 +618,6 @@ export class RequestLogger {
         this.summary.error = error;
         this.log('error', 'System', 'error', error);
         logEmitter.emit('summary', this.summary);
+        persistRequest(this.summary, this.payload);
     }
 }

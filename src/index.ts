@@ -11,7 +11,8 @@ import express from 'express';
 import { getConfig } from './config.js';
 import { handleMessages, listModels, countTokens } from './handler.js';
 import { handleOpenAIChatCompletions, handleOpenAIResponses } from './openai-handler.js';
-import { serveLogViewer, apiGetLogs, apiGetRequests, apiGetStats, apiGetPayload, apiLogsStream, serveLogViewerLogin } from './log-viewer.js';
+import { serveLogViewer, apiGetLogs, apiGetRequests, apiGetStats, apiGetPayload, apiLogsStream, serveLogViewerLogin, apiClearLogs } from './log-viewer.js';
+import { loadLogsFromFiles } from './logger.js';
 
 // 从 package.json 读取版本号，统一来源，避免多处硬编码
 const require = createRequire(import.meta.url);
@@ -35,6 +36,9 @@ app.use((_req, res, next) => {
     }
     next();
 });
+
+// ★ 静态文件路由（无需鉴权，CSS/JS 等）
+app.use('/public', express.static('public'));
 
 // ★ 日志查看器鉴权中间件：配置了 authTokens 时需要验证
 const logViewerAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -65,6 +69,7 @@ app.get('/api/requests', logViewerAuth, apiGetRequests);
 app.get('/api/stats', logViewerAuth, apiGetStats);
 app.get('/api/payload/:requestId', logViewerAuth, apiGetPayload);
 app.get('/api/logs/stream', logViewerAuth, apiLogsStream);
+app.post('/api/logs/clear', logViewerAuth, apiClearLogs);
 
 // ★ API 鉴权中间件：配置了 authTokens 则需要 Bearer token
 app.use((req, res, next) => {
@@ -140,13 +145,18 @@ app.get('/', (_req, res) => {
 
 // ==================== 启动 ====================
 
+// ★ 从日志文件加载历史（必须在 listen 之前）
+loadLogsFromFiles();
+
 app.listen(config.port, () => {
     const auth = config.authTokens?.length ? `${config.authTokens.length} token(s)` : 'open';
+    const logPersist = config.logging?.file_enabled ? `file → ${config.logging.dir}` : 'memory only';
     console.log('');
     console.log(`  \x1b[36m⚡ Cursor2API v${VERSION}\x1b[0m`);
     console.log(`  ├─ Server:  \x1b[32mhttp://localhost:${config.port}\x1b[0m`);
     console.log(`  ├─ Model:   ${config.cursorModel}`);
     console.log(`  ├─ Auth:    ${auth}`);
+    console.log(`  ├─ Logging: ${logPersist}`);
     console.log(`  └─ Logs:    \x1b[35mhttp://localhost:${config.port}/logs\x1b[0m`);
     console.log('');
 });

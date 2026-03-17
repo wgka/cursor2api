@@ -123,6 +123,11 @@ export interface AppConfig {
     thinking?: {
         enabled: boolean;          // 是否启用 thinking（最高优先级，覆盖客户端请求）
     };
+    logging?: {
+        file_enabled: boolean;     // 是否启用日志文件持久化
+        dir: string;               // 日志文件存储目录
+        max_days: number;          // 日志保留天数
+    };
     fingerprint: {
         userAgent: string;
     };

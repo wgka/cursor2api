@@ -61,6 +61,14 @@ export function getConfig(): AppConfig {
                     enabled: yaml.thinking.enabled !== false, // 默认启用
                 };
             }
+            // ★ 日志文件持久化
+            if (yaml.logging !== undefined) {
+                config.logging = {
+                    file_enabled: yaml.logging.file_enabled === true, // 默认关闭
+                    dir: yaml.logging.dir || './logs',
+                    max_days: typeof yaml.logging.max_days === 'number' ? yaml.logging.max_days : 7,
+                };
+            }
         } catch (e) {
             console.warn('[Config] 读取 config.yaml 失败:', e);
         }
@@ -89,6 +97,15 @@ export function getConfig(): AppConfig {
         config.thinking = {
             enabled: process.env.THINKING_ENABLED !== 'false' && process.env.THINKING_ENABLED !== '0',
         };
+    }
+    // Logging 环境变量覆盖
+    if (process.env.LOG_FILE_ENABLED !== undefined) {
+        if (!config.logging) config.logging = { file_enabled: false, dir: './logs', max_days: 7 };
+        config.logging.file_enabled = process.env.LOG_FILE_ENABLED === 'true' || process.env.LOG_FILE_ENABLED === '1';
+    }
+    if (process.env.LOG_DIR) {
+        if (!config.logging) config.logging = { file_enabled: false, dir: './logs', max_days: 7 };
+        config.logging.dir = process.env.LOG_DIR;
     }
 
     // 从 base64 FP 环境变量解析指纹
