@@ -136,11 +136,11 @@ async function sendCursorRequestInner(
         const REPEAT_THRESHOLD = 8;       // 同一 delta 连续出现 8 次 → 退化
         let degenerateAborted = false;
 
-        // ★ 行级重复检测：历史消息较多时模型偶发换行重复输出 bug，连续相同行超过阈值则中止并重试
-        let lineBuffer = '';
-        let lastLine = '';
-        let lineRepeatCount = 0;
-        let lineRepeatAborted = false;
+        // ★ HTML token 重复检测：历史消息较多时模型偶发连续输出 <br>、</s> 等 HTML token 的 bug
+        // 用 tagBuffer 跨 delta 拼接，提取完整 token 后检测连续重复，不依赖换行
+        let tagBuffer = '';
+        let htmlRepeatAborted = false;
+        const HTML_TOKEN_RE = /(<\/?[a-z][a-z0-9]*\s*\/?>|&[a-z]+;)/gi;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -171,7 +171,6 @@ async function sendCursorRequestInner(
                                 if (repeatCount >= REPEAT_THRESHOLD) {
                                     console.warn(`[Cursor] ⚠️ 检测到退化循环: "${trimmedDelta}" 已连续重复 ${repeatCount} 次，中止流`);
                                     degenerateAborted = true;
-                                    // 不再转发此 delta，直接中止
                                     reader.cancel();
                                     break;
                                 }
@@ -184,32 +183,33 @@ async function sendCursorRequestInner(
                             lastDelta = '';
                             repeatCount = 0;
                         }
-                    }
 
-                    // ★ 行级重复检测
-                    if (event.type === 'text-delta' && event.delta) {
-                        lineBuffer += event.delta;
-                        if (lineBuffer.length > 50) { lineBuffer = ''; }  // 超长行不参与检测
-                        if (lineBuffer.indexOf('\n') !== -1) {
-                            const nlParts = lineBuffer.split('\n');
-                            lineBuffer = nlParts.pop()!;
-                            for (const completedLine of nlParts) {
-                                const trimLine = completedLine.trim();
-                                if (!trimLine) continue;
-                                if (trimLine === lastLine) {
-                                    lineRepeatCount++;
-                                    if (lineRepeatCount >= REPEAT_THRESHOLD) {
-                                        console.warn(`[Cursor] ⚠️ 检测到行级重复: "${trimLine.substring(0, 60)}" 已连续重复 ${lineRepeatCount} 次，中止流`);
-                                        lineRepeatAborted = true;
+                        // ★ HTML token 重复检测：跨 delta 拼接，提取完整 HTML token 后检测连续重复
+                        // 解决 <br>、</s>、&nbsp; 等被拆散发送或无换行导致退化检测失效的 bug
+                        tagBuffer += event.delta;
+                        const tagMatches = [...tagBuffer.matchAll(new RegExp(HTML_TOKEN_RE.source, 'gi'))];
+                        if (tagMatches.length > 0) {
+                            const lastTagMatch = tagMatches[tagMatches.length - 1];
+                            tagBuffer = tagBuffer.slice(lastTagMatch.index! + lastTagMatch[0].length);
+                            for (const m of tagMatches) {
+                                const token = m[0].toLowerCase();
+                                if (token === lastDelta) {
+                                    repeatCount++;
+                                    if (repeatCount >= REPEAT_THRESHOLD) {
+                                        console.warn(`[Cursor] ⚠️ 检测到 HTML token 重复: "${token}" 已连续重复 ${repeatCount} 次，中止流`);
+                                        htmlRepeatAborted = true;
                                         reader.cancel();
                                         break;
                                     }
                                 } else {
-                                    lastLine = trimLine;
-                                    lineRepeatCount = 1;
+                                    lastDelta = token;
+                                    repeatCount = 1;
                                 }
                             }
-                            if (lineRepeatAborted) break;
+                            if (htmlRepeatAborted) break;
+                        } else if (tagBuffer.length > 20) {
+                            // 超过 20 字符还没有完整 HTML token，不是 HTML 序列，清空避免内存累积
+                            tagBuffer = '';
                         }
                     }
 
@@ -219,16 +219,16 @@ async function sendCursorRequestInner(
                 }
             }
 
-            if (degenerateAborted || lineRepeatAborted) break;
+            if (degenerateAborted || htmlRepeatAborted) break;
         }
 
         // ★ 退化循环中止后，抛出特殊错误让外层 sendCursorRequest 不再重试
         if (degenerateAborted) {
             throw new Error('DEGENERATE_LOOP_ABORTED');
         }
-        // ★ 行级重复中止后，抛出普通错误让外层 sendCursorRequest 走正常重试
-        if (lineRepeatAborted) {
-            throw new Error('LINE_REPEAT_ABORTED');
+        // ★ HTML token 重复中止后，抛出普通错误让外层 sendCursorRequest 走正常重试
+        if (htmlRepeatAborted) {
+            throw new Error('HTML_REPEAT_ABORTED');
         }
 
         // 处理剩余 buffer
