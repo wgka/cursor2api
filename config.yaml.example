@@ -112,6 +112,7 @@ tools:
   #          工具调用仍使用 ```json action``` 格式，响应解析不受影响
   #   false: [默认] 使用标准模式（buildToolInstructions + 多类别 few-shot 注入）
   #          Claude Code 推荐此模式，兼容性和工具调用覆盖率更好
+  # 环境变量: TOOLS_PASSTHROUGH=true|false
   # passthrough: true
 
 # ==================== 响应内容清洗（可选，默认关闭） ====================

@@ -145,6 +145,12 @@ function applyEnvOverrides(cfg: AppConfig): void {
         if (!cfg.logging) cfg.logging = { file_enabled: false, dir: './logs', max_days: 7 };
         cfg.logging.dir = process.env.LOG_DIR;
     }
+    // 工具透传模式环境变量覆盖
+    if (process.env.TOOLS_PASSTHROUGH !== undefined) {
+        if (!cfg.tools) cfg.tools = { schemaMode: 'full', descriptionMaxLength: 0 };
+        cfg.tools.passthrough = process.env.TOOLS_PASSTHROUGH === 'true' || process.env.TOOLS_PASSTHROUGH === '1';
+    }
+
     // 响应内容清洗环境变量覆盖
     if (process.env.SANITIZE_RESPONSE !== undefined) {
         cfg.sanitizeEnabled = process.env.SANITIZE_RESPONSE === 'true' || process.env.SANITIZE_RESPONSE === '1';
