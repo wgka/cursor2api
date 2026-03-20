@@ -115,6 +115,14 @@ tools:
   # 环境变量: TOOLS_PASSTHROUGH=true|false
   # passthrough: true
 
+  # ★ 禁用模式（极致省上下文）
+  #   true:  完全不注入工具定义和 few-shot 示例，节省大量上下文空间
+  #          模型凭自身训练记忆处理工具调用（适合已内化工具格式的场景）
+  #          响应中的 ```json action``` 块仍会被正常解析
+  #   false: [默认] 正常注入工具定义
+  # 环境变量: TOOLS_DISABLED=true|false
+  # disabled: true
+
 # ==================== 响应内容清洗（可选，默认关闭） ====================
 # 开启后，会将响应中 Cursor 相关的身份引用替换为 Claude
 # 例如 "I am Cursor's support assistant" → "I am Claude, an AI assistant by Anthropic"

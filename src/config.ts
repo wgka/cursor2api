@@ -90,6 +90,7 @@ function parseYamlConfig(defaults: AppConfig): { config: AppConfig; raw: Record<
                 includeOnly: Array.isArray(t.include_only) ? t.include_only.map(String) : undefined,
                 exclude: Array.isArray(t.exclude) ? t.exclude.map(String) : undefined,
                 passthrough: t.passthrough === true,
+                disabled: t.disabled === true,
             };
         }
         // ★ 响应内容清洗开关（默认关闭）
@@ -149,6 +150,11 @@ function applyEnvOverrides(cfg: AppConfig): void {
     if (process.env.TOOLS_PASSTHROUGH !== undefined) {
         if (!cfg.tools) cfg.tools = { schemaMode: 'full', descriptionMaxLength: 0 };
         cfg.tools.passthrough = process.env.TOOLS_PASSTHROUGH === 'true' || process.env.TOOLS_PASSTHROUGH === '1';
+    }
+    // 工具禁用模式环境变量覆盖
+    if (process.env.TOOLS_DISABLED !== undefined) {
+        if (!cfg.tools) cfg.tools = { schemaMode: 'full', descriptionMaxLength: 0 };
+        cfg.tools.disabled = process.env.TOOLS_DISABLED === 'true' || process.env.TOOLS_DISABLED === '1';
     }
 
     // 响应内容清洗环境变量覆盖
