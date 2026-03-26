@@ -110,6 +110,37 @@ export function estimateCursorReqTokens(cursorReq: CursorChatRequest): number {
     return total;
 }
 
+/**
+ * 面向下游客户端暴露的 input_tokens / prompt_tokens。
+ *
+ * 关键点：
+ * - 必须基于“实际发往 Cursor 的请求”计算，而不是原始入站 body
+ * - 因为 convertToCursorRequest() 会做：
+ *   1) 历史裁剪（max_history_tokens / max_history_messages）
+ *   2) tool_result 截断/压缩
+ *   3) 工具 schema 压缩
+ *
+ * 如果直接对原始 body 调 estimateInputTokens()，在长对话/大工具输出场景下
+ * 会把已经被裁掉的上下文也算进去，导致下游代理（如 2api）看到异常巨大的输入量并误扣费。
+ */
+export function estimatePublicInputTokens(cursorReq: CursorChatRequest): number {
+    const actualTokens = estimateCursorReqTokens(cursorReq);
+    const capTokens = getConfig().maxInputTokens;
+    if (capTokens >= 0) {
+        return Math.max(1, Math.min(actualTokens, capTokens));
+    }
+    return Math.max(1, actualTokens);
+}
+
+function cloneAnthropicRequest(body: AnthropicRequest): AnthropicRequest {
+    return JSON.parse(JSON.stringify(body)) as AnthropicRequest;
+}
+
+export async function estimatePublicInputTokensFromBody(body: AnthropicRequest): Promise<number> {
+    const cursorReq = await convertToCursorRequest(cloneAnthropicRequest(body));
+    return estimatePublicInputTokens(cursorReq);
+}
+
 export function estimateInputTokens(body: AnthropicRequest): number {
     let total = 0;
 
@@ -134,9 +165,15 @@ export function estimateInputTokens(body: AnthropicRequest): number {
     return Math.max(1, total);
 }
 
-export function countTokens(req: Request, res: Response): void {
+export async function countTokens(req: Request, res: Response): Promise<void> {
     const body = req.body as AnthropicRequest;
-    res.json({ input_tokens: estimateInputTokens(body) });
+    try {
+        res.json({ input_tokens: await estimatePublicInputTokensFromBody(body) });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[count_tokens] public token estimate failed, fallback to raw body estimate: ${message}`);
+        res.json({ input_tokens: estimateInputTokens(body) });
+    }
 }
 
 // ==================== 身份探针拦截 ====================
@@ -400,7 +437,9 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
         const cursorReq = await convertToCursorRequest(body);
         log.endPhase();
         log.recordCursorRequest(cursorReq);
+        const publicInputTokens = estimatePublicInputTokens(cursorReq);
         log.debug('Handler', 'convert', `转换完成: ${cursorReq.messages.length} messages, model=${cursorReq.model}, clientThinking=${clientRequestedThinking}, thinkingType=${body.thinking?.type}, configThinking=${thinkingConfig?.enabled ?? 'unset'}`);
+        log.updateSummary({ inputTokens: publicInputTokens });
 
         if (body.stream) {
             await handleStream(res, cursorReq, body, log, clientRequestedThinking);
@@ -1158,7 +1197,7 @@ async function handleStream(res: Response, cursorReq: CursorChatRequest, body: A
         message: {
             id, type: 'message', role: 'assistant', content: [],
             model, stop_reason: null, stop_sequence: null,
-            usage: { input_tokens: estimateInputTokens(body), output_tokens: 0 },
+            usage: { input_tokens: estimatePublicInputTokens(cursorReq), output_tokens: 0 },
         },
     });
 
@@ -2110,7 +2149,7 @@ Please go ahead and pick the most appropriate tool for the current task and outp
         stop_reason: stopReason,
         stop_sequence: null,
         usage: { 
-            input_tokens: estimateInputTokens(body), 
+            input_tokens: estimatePublicInputTokens(cursorReq),
             output_tokens: Math.ceil(fullText.length / 3) 
         },
     };

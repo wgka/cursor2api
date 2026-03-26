@@ -31,6 +31,9 @@
               <Field label="max_history_tokens" desc="按 token 数裁剪历史（推荐）。从最早消息整条删除，有助于减少超出 Cursor 上下文的概率。代码自动补偿 Cursor 后端开销（1,300 基础 + 工具 tokenizer 差异，动态计算），默认 150000，参考值 130000~170000。-1 不限制">
                 <input v-model.number="draft.max_history_tokens" type="number" min="-1" class="inp" />
               </Field>
+              <Field label="max_input_tokens" desc="基于实际发往 Cursor 的请求计算的统计上限（保险阈值）。仅用于对外返回 usage / count_tokens 的封顶，不会拒绝请求。默认 150000，-1 不限制">
+                <input v-model.number="draft.max_input_tokens" type="number" min="-1" class="inp" />
+              </Field>
             </Group>
 
             <!-- 功能 -->

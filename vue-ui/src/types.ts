@@ -72,6 +72,7 @@ export interface HotConfig {
   max_auto_continue: number;
   max_history_messages: number;
   max_history_tokens: number;
+  max_input_tokens: number;
   thinking: { enabled: boolean } | null;
   compression: { enabled: boolean; level: 1 | 2 | 3; keep_recent: number; early_msg_max_chars: number };
   tools: { schema_mode: 'compact' | 'full' | 'names_only'; description_max_length: number; passthrough?: boolean; disabled?: boolean };

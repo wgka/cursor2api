@@ -74,6 +74,14 @@ max_history_messages: -1
 # 环境变量: MAX_HISTORY_TOKENS=120000
 max_history_tokens: 120000
 
+# ==================== 输入 Token 统计上限（保险阈值） ====================
+# 基于“实际发往 Cursor 的请求”计算，而不是原始入站 body。
+# 仅用于对外返回 usage / count_tokens 的统计封顶，不会拦截请求。
+# 建议与 max_history_tokens 一起使用；通常设置为 150000 即可。
+# 设为 -1 不限制
+# 环境变量: MAX_INPUT_TOKENS=150000
+max_input_tokens: 150000
+
 # ==================== Thinking 开关（最高优先级） ====================
 # 控制是否向 Cursor 发送 thinking 请求，优先级高于客户端传入的 thinking 参数
 # 设为 true: 强制启用 thinking（即使客户端没请求也注入）

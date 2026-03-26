@@ -41,7 +41,7 @@ import {
     CLAUDE_IDENTITY_RESPONSE,
     CLAUDE_TOOLS_RESPONSE,
     MAX_REFUSAL_RETRIES,
-    estimateInputTokens,
+    estimatePublicInputTokens,
 } from './handler.js';
 
 function chatId(): string {
@@ -489,6 +489,8 @@ export async function handleOpenAIChatCompletions(req: Request, res: Response): 
         // Step 2: Anthropic → Cursor 格式（复用现有管道）
         const cursorReq = await convertToCursorRequest(anthropicReq);
         log.recordCursorRequest(cursorReq);
+        const publicInputTokens = estimatePublicInputTokens(cursorReq);
+        log.updateSummary({ inputTokens: publicInputTokens });
 
         if (body.stream) {
             await handleOpenAIStream(res, cursorReq, body, anthropicReq, log);
@@ -571,10 +573,10 @@ function writeOpenAITextDelta(
 }
 
 function buildOpenAIUsage(
-    anthropicReq: AnthropicRequest,
+    cursorReq: CursorChatRequest,
     outputText: string,
 ): { prompt_tokens: number; completion_tokens: number; total_tokens: number } {
-    const promptTokens = estimateInputTokens(anthropicReq);
+    const promptTokens = estimatePublicInputTokens(cursorReq);
     const completionTokens = Math.ceil(outputText.length / 3);
     return {
         prompt_tokens: promptTokens,
@@ -738,7 +740,7 @@ async function handleOpenAIIncrementalTextStream(
             delta: {},
             finish_reason: 'stop',
         }],
-        usage: buildOpenAIUsage(anthropicReq, streamer.hasSentText() ? (finalVisibleText || finalRawResponse) : finalTextToSend),
+        usage: buildOpenAIUsage(cursorReq, streamer.hasSentText() ? (finalVisibleText || finalRawResponse) : finalTextToSend),
     });
 
     log.recordRawResponse(finalRawResponse);
@@ -1100,7 +1102,7 @@ async function handleOpenAIStream(
                 delta: {},
                 finish_reason: finishReason,
             }],
-            usage: buildOpenAIUsage(anthropicReq, fullResponse),
+            usage: buildOpenAIUsage(cursorReq, fullResponse),
         });
 
         log.recordRawResponse(fullResponse);
@@ -1251,7 +1253,7 @@ async function handleOpenAINonStream(
             },
             finish_reason: finishReason,
         }],
-        usage: buildOpenAIUsage(anthropicReq, fullText),
+        usage: buildOpenAIUsage(cursorReq, fullText),
     };
 
     res.json(response);
@@ -1378,6 +1380,9 @@ export async function handleOpenAIResponses(req: Request, res: Response): Promis
                 return handleResponsesNonStreamMock(res, body, mockText);
             }
         }
+
+        const publicInputTokens = estimatePublicInputTokens(cursorReq);
+        log.updateSummary({ inputTokens: publicInputTokens });
 
         if (isStream) {
             await handleResponsesStream(res, cursorReq, body, anthropicReq, log);
@@ -1611,7 +1616,7 @@ async function handleResponsesStream(
         fullResponse = sanitizeResponse(fullResponse);
 
         // 计算 usage
-        const inputTokens = estimateInputTokens(anthropicReq);
+        const inputTokens = estimatePublicInputTokens(cursorReq);
         const outputTokens = Math.ceil(fullResponse.length / 3);
         const usage = { input_tokens: inputTokens, output_tokens: outputTokens, total_tokens: inputTokens + outputTokens };
 
@@ -1818,7 +1823,7 @@ async function handleResponsesNonStream(
 
     const respId = responsesId();
     const model = (body.model as string) || 'gpt-4';
-    const inputTokens = estimateInputTokens(anthropicReq);
+    const inputTokens = estimatePublicInputTokens(cursorReq);
     const outputTokens = Math.ceil(fullText.length / 3);
     const usage = { input_tokens: inputTokens, output_tokens: outputTokens, total_tokens: inputTokens + outputTokens };
 

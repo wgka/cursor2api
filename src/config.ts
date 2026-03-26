@@ -38,6 +38,7 @@ function parseYamlConfig(defaults: AppConfig): { config: AppConfig; raw: Record<
         if (typeof yaml.max_auto_continue === 'number') result.maxAutoContinue = yaml.max_auto_continue;
         if (typeof yaml.max_history_messages === 'number') result.maxHistoryMessages = yaml.max_history_messages;
         if (typeof yaml.max_history_tokens === 'number') result.maxHistoryTokens = yaml.max_history_tokens;
+        if (typeof yaml.max_input_tokens === 'number') result.maxInputTokens = yaml.max_input_tokens;
         if (yaml.fingerprint) {
             if (yaml.fingerprint.user_agent) result.fingerprint.userAgent = yaml.fingerprint.user_agent;
         }
@@ -124,6 +125,7 @@ function applyEnvOverrides(cfg: AppConfig): void {
     if (process.env.MAX_AUTO_CONTINUE !== undefined) cfg.maxAutoContinue = parseInt(process.env.MAX_AUTO_CONTINUE);
     if (process.env.MAX_HISTORY_MESSAGES !== undefined) cfg.maxHistoryMessages = parseInt(process.env.MAX_HISTORY_MESSAGES);
     if (process.env.MAX_HISTORY_TOKENS !== undefined) cfg.maxHistoryTokens = parseInt(process.env.MAX_HISTORY_TOKENS);
+    if (process.env.MAX_INPUT_TOKENS !== undefined) cfg.maxInputTokens = parseInt(process.env.MAX_INPUT_TOKENS);
     if (process.env.AUTH_TOKEN) {
         cfg.authTokens = process.env.AUTH_TOKEN.split(',').map(s => s.trim()).filter(Boolean);
     }
@@ -206,6 +208,7 @@ function defaultConfig(): AppConfig {
         maxAutoContinue: 0,
         maxHistoryMessages: -1,
         maxHistoryTokens: 150000,
+        maxInputTokens: 150000,
         sanitizeEnabled: false,  // 默认关闭响应内容清洗
         fingerprint: {
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
@@ -226,6 +229,7 @@ function detectChanges(oldCfg: AppConfig, newCfg: AppConfig): string[] {
     if (oldCfg.maxAutoContinue !== newCfg.maxAutoContinue) changes.push(`max_auto_continue: ${oldCfg.maxAutoContinue} → ${newCfg.maxAutoContinue}`);
     if (oldCfg.maxHistoryMessages !== newCfg.maxHistoryMessages) changes.push(`max_history_messages: ${oldCfg.maxHistoryMessages} → ${newCfg.maxHistoryMessages}`);
     if (oldCfg.maxHistoryTokens !== newCfg.maxHistoryTokens) changes.push(`max_history_tokens: ${oldCfg.maxHistoryTokens} → ${newCfg.maxHistoryTokens}`);
+    if (oldCfg.maxInputTokens !== newCfg.maxInputTokens) changes.push(`max_input_tokens: ${oldCfg.maxInputTokens} → ${newCfg.maxInputTokens}`);
 
     // auth_tokens
     const oldTokens = (oldCfg.authTokens || []).join(',');
