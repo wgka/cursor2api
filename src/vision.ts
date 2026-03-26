@@ -2,6 +2,12 @@ import { getConfig } from './config.js';
 import type { AnthropicMessage, AnthropicContentBlock } from './types.js';
 import { getVisionProxyFetchOptions } from './proxy-agent.js';
 import { createWorker } from 'tesseract.js';
+import { existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const LOCAL_TESSDATA = join(__dirname, '..', 'data', 'tessdata');
 
 export async function applyVisionInterceptor(messages: AnthropicMessage[]): Promise<void> {
     const config = getConfig();
@@ -74,7 +80,29 @@ export async function applyVisionInterceptor(messages: AnthropicMessage[]): Prom
 const UNSUPPORTED_OCR_TYPES = new Set(['image/svg+xml']);
 
 async function processWithLocalOCR(imageBlocks: AnthropicContentBlock[]): Promise<string> {
-    const worker = await createWorker('eng+chi_sim');
+    // ★ Worker 创建带超时：tesseract.js 下载语言数据可能失败或超时，
+    //   内部 Worker 的 fetch 错误通过 process.nextTick 抛出，无法被 try/catch 捕获。
+    //   这里用 Promise.race 加 30s 超时保护。
+    let worker: Awaited<ReturnType<typeof createWorker>>;
+    const hasLocal = existsSync(join(LOCAL_TESSDATA, 'eng.traineddata'));
+    const workerOpts: Record<string, unknown> = {};
+    if (hasLocal) {
+        workerOpts.langPath = LOCAL_TESSDATA;
+        workerOpts.gzip = false;
+        console.log('[Vision OCR] 使用本地语言数据:', LOCAL_TESSDATA);
+    }
+    try {
+        worker = await Promise.race([
+            createWorker('eng+chi_sim', undefined, workerOpts),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('OCR worker 创建超时（30s），可能是语言数据下载失败')), 30000)
+            ),
+        ]);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[Vision OCR] Worker 创建失败: ${msg}`);
+        return `(OCR 初始化失败: ${msg}。如果网络受限，可尝试 vision.mode: 'api' 或关闭 vision)`;
+    }
     let combinedText = '';
 
     for (let i = 0; i < imageBlocks.length; i++) {

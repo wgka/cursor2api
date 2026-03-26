@@ -3,9 +3,18 @@
  *
  * 集中管理拒绝检测规则、身份探针模式、固定回复模板等常量。
  * 方便查阅和修改内置规则，无需翻阅 handler.ts 的业务逻辑。
+ *
+ * ★ 品牌名称在运行时拼接（_B），防止模型读取源码时将模式字符串误认为内容污染。
  */
 
 import { getConfig } from './config.js';
+
+// Runtime brand name — split to prevent model confusion when reading source code
+const _B = ['Cur', 'sor'].join('');
+
+// Helper: build RegExp with brand placeholder $B replaced at runtime
+const _r = (pattern: string, flags = 'i') =>
+    new RegExp(pattern.replace(/\$B/g, _B), flags);
 
 // ==================== 拒绝模式识别 ====================
 // 模型返回以下任意模式匹配的内容时，判定为拒绝响应并触发重试
@@ -13,8 +22,9 @@ import { getConfig } from './config.js';
 
 export const REFUSAL_PATTERNS: RegExp[] = [
     // ── English: 身份拒绝 ──
-    /Cursor(?:'s)?\s+support\s+assistant/i,
-    /support\s+assistant\s+for\s+Cursor/i,
+    _r("$B(?:'s)?\\s+support\\s+assistant"),
+    _r("support\\s+assistant\\s+for\\s+$B"),
+    _r("I(?:'m|\\s+am)\\s+(?:a\\s+)?$B\\b"),
     /I[''']\s*m\s+sorry/i,
     /I\s+am\s+sorry/i,
     /not\s+able\s+to\s+fulfill/i,
@@ -34,14 +44,14 @@ export const REFUSAL_PATTERNS: RegExp[] = [
     /beyond\s+(?:my|the)\s+scope/i,
     /I'?m\s+not\s+(?:able|designed)\s+to/i,
     /I\s+don't\s+have\s+(?:the\s+)?(?:ability|capability)/i,
-    /questions\s+about\s+(?:Cursor|the\s+(?:AI\s+)?code\s+editor)/i,
+    _r("questions\\s+about\\s+(?:$B|the\\s+(?:AI\\s+)?code\\s+editor)"),
 
-    // ── English: 话题拒绝 ── Cursor 拒绝非编程话题
-    /help\s+with\s+(?:coding|programming)\s+and\s+Cursor/i,
-    /Cursor\s+IDE\s+(?:questions|features|related)/i,
-    /unrelated\s+to\s+(?:programming|coding)(?:\s+or\s+Cursor)?/i,
-    /Cursor[- ]related\s+question/i,
-    /(?:ask|please\s+ask)\s+a\s+(?:programming|coding|Cursor)/i,
+    // ── English: 话题拒绝 ──
+    _r("help\\s+with\\s+(?:coding|programming)\\s+and\\s+$B"),
+    _r("$B\\s+IDE\\s+(?:questions|features|related)"),
+    _r("unrelated\\s+to\\s+(?:programming|coding)(?:\\s+or\\s+$B)?"),
+    _r("$B[- ]related\\s+question"),
+    _r("(?:ask|please\\s+ask)\\s+a\\s+(?:programming|coding|$B)"),
     /(?:I'?m|I\s+am)\s+here\s+to\s+help\s+with\s+(?:coding|programming)/i,
     /appears\s+to\s+be\s+(?:asking|about)\s+.*?unrelated/i,
     /(?:not|isn't|is\s+not)\s+(?:related|relevant)\s+to\s+(?:programming|coding|software)/i,
@@ -50,7 +60,7 @@ export const REFUSAL_PATTERNS: RegExp[] = [
     // ── English: 新拒绝措辞 (2026-03) ──
     /isn't\s+something\s+I\s+can\s+help\s+with/i,
     /not\s+something\s+I\s+can\s+help\s+with/i,
-    /scoped\s+to\s+answering\s+questions\s+about\s+Cursor/i,
+    _r("scoped\\s+to\\s+answering\\s+questions\\s+about\\s+$B"),
     /falls\s+outside\s+(?:the\s+scope|what\s+I)/i,
 
     // ── English: 提示注入/社会工程检测 ──
@@ -67,7 +77,7 @@ export const REFUSAL_PATTERNS: RegExp[] = [
     /emit\s+tool\s+invocations/i,
     /make\s+me\s+output\s+tool\s+calls/i,
 
-    // ── English: 工具可用性声明 (Cursor 角色锁定) ──
+    // ── English: 工具可用性声明 (角色锁定) ──
     /I\s+(?:only\s+)?have\s+(?:access\s+to\s+)?(?:two|2|read_file|read_dir)\s+tool/i,
     /(?:only|just)\s+(?:two|2)\s+(?:tools?|functions?)\b/i,
     /\bread_file\b.*\bread_dir\b/i,
@@ -79,30 +89,32 @@ export const REFUSAL_PATTERNS: RegExp[] = [
     /this\s+assistant\s+is\s+(?:focused|scoped)/i,
     /(?:only|just)\s+(?:able|here)\s+to\s+(?:answer|help)/i,
     /I\s+(?:can\s+)?only\s+help\s+with\s+(?:questions|issues)\s+(?:related|about)/i,
-    /(?:here|designed)\s+to\s+help\s+(?:with\s+)?(?:questions\s+)?about\s+Cursor/i,
-    /not\s+(?:something|a\s+topic)\s+(?:related|specific)\s+to\s+(?:Cursor|coding)/i,
+    _r("(?:here|designed)\\s+to\\s+help\\s+(?:with\\s+)?(?:questions\\s+)?about\\s+$B"),
+    _r("not\\s+(?:something|a\\s+topic)\\s+(?:related|specific)\\s+to\\s+(?:$B|coding)"),
     /outside\s+(?:my|the|your)\s+area\s+of\s+(?:expertise|scope)/i,
     /(?:can[.']?t|cannot|unable\s+to)\s+help\s+with\s+(?:this|that)\s+(?:request|question|topic)/i,
     /scoped\s+to\s+(?:answering|helping)/i,
 
-    // ── English: Cursor support assistant context leak (2026-03) ──
-    /currently\s+in\s+(?:the\s+)?Cursor\s+(?:support\s+)?(?:assistant\s+)?context/i,
-    /it\s+appears\s+I['']?m\s+currently\s+in\s+the\s+Cursor/i,
+    // ── English: support assistant context leak (2026-03) ──
+    _r("currently\\s+in\\s+(?:the\\s+)?$B\\s+(?:support\\s+)?(?:assistant\\s+)?context"),
+    _r("it\\s+appears\\s+I['\u2018\u2019]?m\\s+currently\\s+in\\s+the\\s+$B"),
 
     // ── 中文: 身份拒绝 ──
-    /我是\s*Cursor\s*的?\s*支持助手/,
-    /Cursor\s*的?\s*支持系统/,
-    /Cursor\s*(?:编辑器|IDE)?\s*相关的?\s*问题/,
+    _r("我是\\s*$B"),
+    _r("$B\\s*的?\\s*支持(?:系统|助手)"),
+    _r("$B\\s*(?:编辑器|IDE)?\\s*相关的?\\s*问题"),
     /我的职责是帮助你解答/,
     /我无法透露/,
-    /帮助你解答\s*Cursor/,
-    /运行在\s*Cursor\s*的/,
-    /专门.*回答.*(?:Cursor|编辑器)/,
+    _r("帮助你解答\\s*$B"),
+    _r("运行在\\s*$B\\s*的"),
+    _r("专门.*回答.*(?:$B|编辑器)"),
     /我只能回答/,
     /无法提供.*信息/,
     /我没有.*也不会提供/,
     /功能使用[、,]\s*账单/,
     /故障排除/,
+    /无法回答(?:任何|你的|这个)?问题/,
+    _r("(?:我|本助手)(?:是|只是).*?(?:$B|编码|编程)\\s*(?:助手|工具)"),
 
     // ── 中文: 话题拒绝 ──
     /与\s*(?:编程|代码|开发)\s*无关/,
@@ -124,7 +136,7 @@ export const REFUSAL_PATTERNS: RegExp[] = [
     /无法调用.*?工具/,
     /(?:仅限于|仅用于).*?(?:查阅|浏览).*?(?:文档|docs)/,
     // ── 中文: 工具可用性声明 (2026-03 新增) ──
-    /只有.*?读取.*?Cursor.*?工具/,
+    _r("只有.*?读取.*?$B.*?工具"),
     /只有.*?读取.*?文档的工具/,
     /无法访问.*?本地文件/,
     /无法.*?执行命令/,
@@ -134,10 +146,10 @@ export const REFUSAL_PATTERNS: RegExp[] = [
     /只有.*?read_file.*?read_dir/i,
     /只有.*?read_dir.*?read_file/i,
 
-    // ── 中文: Cursor 中文界面拒绝措辞 (2026-03 批次) ──
-    /只能回答.*(?:Cursor|编辑器).*(?:相关|有关)/,
-    /专[注门].*(?:回答|帮助|解答).*(?:Cursor|编辑器)/,
-    /有什么.*(?:Cursor|编辑器).*(?:问题|可以)/,
+    // ── 中文: 中文界面拒绝措辞 (2026-03 批次) ──
+    _r("只能回答.*(?:$B|编辑器).*(?:相关|有关)"),
+    _r("专[注门].*(?:回答|帮助|解答).*(?:$B|编辑器)"),
+    _r("有什么.*(?:$B|编辑器).*(?:问题|可以)"),
     /无法提供.*(?:推荐|建议|帮助)/,
     /(?:功能使用|账户|故障排除|账号|订阅|套餐|计费).*(?:等|问题)/,
 ];
@@ -205,7 +217,6 @@ export const IDENTITY_PROBE_PATTERNS: RegExp[] = [
     // "你是谁"的变体
     /你\s*(?:到底|究竟|真的|真实)\s*是\s*谁/,
     /你\s*是[^。，,\.]{0,5}(?:AI|人工智能|助手|机器人|模型|Claude|GPT|Gemini)/i,
-    // 注意：工具能力询问不在这里拦截，由拒绝检测+重试自然处理
 ];
 
 // ==================== 工具能力询问检测 ====================

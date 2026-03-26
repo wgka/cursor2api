@@ -211,3 +211,17 @@ process.on('SIGINT', () => {
     stopConfigWatcher();
     process.exit(0);
 });
+
+// ★ 全局异常兜底：防止 tesseract.js Worker 等第三方库的未捕获异常导致进程崩溃
+process.on('uncaughtException', (err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('fetch failed') || msg.includes('tesseract') || msg.includes('Worker')) {
+        console.error(`[Global] 捕获到 Worker 异常（已抑制）: ${msg.substring(0, 200)}`);
+    } else {
+        console.error('[Global] 未捕获异常:', err);
+    }
+});
+process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    console.error(`[Global] 未处理的 Promise 拒绝: ${msg.substring(0, 200)}`);
+});

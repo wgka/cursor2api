@@ -35,6 +35,7 @@ logs/
 dist/
 build/
 *.traineddata
+data/tessdata/
 
 # Config (contains sensitive tokens, use config.yaml.example as template)
 config.yaml
