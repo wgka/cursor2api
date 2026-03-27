@@ -1,12 +1,17 @@
 # ==== Stage 1: 构建阶段 (Builder) ====
-FROM node:22-alpine AS builder
+ARG NODE_IMAGE=node:22-alpine
+FROM ${NODE_IMAGE} AS builder
+
+ARG NPM_REGISTRY
 
 # 设置工作目录
 WORKDIR /app
 
 # 仅拷贝包配置并安装所有依赖项（利用 Docker 缓存层）
 COPY package.json package-lock.json ./
-RUN npm ci
+COPY scripts ./scripts
+RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi \
+    && npm ci
 
 # 拷贝项目源代码并执行 TypeScript 编译
 COPY tsconfig.json ./
@@ -14,7 +19,11 @@ COPY src ./src
 RUN npm run build
 
 # ==== Stage 2: 生产运行阶段 (Runner) ====
-FROM node:22-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
+
+ARG NPM_REGISTRY
+ARG APP_UID=1001
+ARG APP_GID=1001
 
 WORKDIR /app
 
@@ -25,22 +34,25 @@ ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 # 出于安全考虑，避免使用 root 用户运行服务
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 cursor
+RUN addgroup --system --gid ${APP_GID} nodejs && \
+    adduser --system --uid ${APP_UID} cursor
 
 # 拷贝包配置并仅安装生产环境依赖（极大减小镜像体积）
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev \
+COPY scripts ./scripts
+RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi \
+    && npm ci --omit=dev --ignore-scripts \
     && npm cache clean --force
 
 # 从 builder 阶段拷贝编译后的产物
 COPY --from=builder --chown=cursor:nodejs /app/dist ./dist
+COPY --from=builder --chown=cursor:nodejs /app/data ./data
 
 # 拷贝前端静态资源（日志查看器 Web UI）
 COPY --chown=cursor:nodejs public ./public
 
 # 创建日志目录并授权
-RUN mkdir -p /app/logs && chown cursor:nodejs /app/logs
+RUN mkdir -p /app/logs /app/data && chown -R cursor:nodejs /app/logs /app/data
 
 # 注意：config.yaml 不打包进镜像，通过 docker-compose volumes 挂载
 # 如果未挂载，服务会使用内置默认值 + 环境变量

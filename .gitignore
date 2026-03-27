@@ -60,3 +60,5 @@ deploy-cursor2api.sh
 deploy-gost.sh
 docker-compose-dev.yml
 docker-compose-local.yml
+docker-compose.override.yml
+docker-compose.override.yaml

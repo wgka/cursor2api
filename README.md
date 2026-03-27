@@ -65,7 +65,17 @@ npm install
 
 ```bash
 cp config.yaml.example config.yaml
+cp .env.example .env
 ```
+
+> 💡 Docker 部署时，建议把服务器本地差异（如 npm 镜像源、端口、UID/GID）放进 `.env`，  
+> 如需覆盖更多 Compose 配置，可额外执行：
+>
+> ```bash
+> cp docker-compose.override.example.yml docker-compose.override.yml
+> ```
+>
+> 这样就不需要直接改 `Dockerfile` / `docker-compose.yml`，后续执行 `redeploy.sh` 也不会因为 Git 冲突卡住。
 
 主要配置项：
 
@@ -130,6 +140,8 @@ AUTO_STASH=1 ./redeploy.sh
 ```
 
 脚本会先 `git stash` 本地修改，拉取最新代码后再自动恢复；若恢复时有冲突，会停止并提示你手动处理。
+
+更推荐的做法是：把服务器本地定制迁移到未跟踪的 `.env` 或 `docker-compose.override.yml`，避免以后再次修改受 Git 管理的 `Dockerfile` / `docker-compose.yml`。
 
 ### 4. 配合 Claude Code 使用
 

@@ -3,11 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${DOCKER_NODE_IMAGE:-node:22-alpine}
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
+        APP_UID: ${APP_UID:-1001}
+        APP_GID: ${APP_GID:-1001}
     image: cursor2api:latest
     container_name: cursor2api
     restart: unless-stopped
     ports:
-      - "3010:3010"
+      - "${HOST_PORT:-3010}:${PORT:-3010}"
     volumes:
       # 挂载配置文件（可选）——先从 config.yaml.example 复制一份: cp config.yaml.example config.yaml
       # 修改后只需 docker compose restart 即可生效；不挂载则使用内置默认值 + 环境变量
@@ -15,11 +20,14 @@ services:
       # 日志持久化目录（需要在 config.yaml 或环境变量中开启 logging.file_enabled）
       - ./logs:/app/logs
     environment:
-      - NODE_ENV=production
-      - PORT=3010
-      - TIMEOUT=120
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=${PORT:-3010}
+      - TIMEOUT=${TIMEOUT:-120}
       # ⚠️ 部署到海外机器无需代理，如果在国内云，取消注释并填入你的本机 http/socks 代理
       # - PROXY=http://host.docker.internal:7890
+      #
+      # 也可以在 .env / docker-compose.override.yml 中放服务器本地配置，
+      # 避免直接修改本文件或 Dockerfile，防止 redeploy 时出现 git 冲突。
 
       # [可选环境变量] 以下变量如果声明，将会覆盖 config.yaml 中对应的配置：
       # - CURSOR_MODEL=anthropic/claude-sonnet-4.6
