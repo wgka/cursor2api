@@ -109,6 +109,20 @@ npm run dev
 npm run build && npm start
 ```
 
+### 3.1 一键更新并重部署
+
+适合部署在服务器上的仓库目录中直接执行：
+
+```bash
+chmod +x redeploy.sh
+./redeploy.sh
+```
+
+- 默认拉取当前分支的 `origin` 最新代码并以 **fast-forward** 方式更新
+- 优先使用 `docker compose up -d --build --remove-orphans` 重部署
+- 若未检测到 Docker Compose，则回退为 `npm ci && npm run build && pm2 restart/start`
+- 如果有已跟踪文件的本地修改，脚本会停止，避免把你的服务器改动直接覆盖掉
+
 ### 4. 配合 Claude Code 使用
 
 ```bash
