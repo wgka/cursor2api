@@ -5,6 +5,8 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="${APP_NAME:-cursor2api}"
 GIT_REMOTE="${GIT_REMOTE:-origin}"
 GIT_BRANCH="${GIT_BRANCH:-}"
+AUTO_STASH="${AUTO_STASH:-0}"
+STASHED_CHANGES=0
 
 info() { printf '\033[1;34m[INFO]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[WARN]\033[0m %s\n' "$*"; }
@@ -66,9 +68,17 @@ fi
 
 TRACKED_CHANGES="$(git status --porcelain --untracked-files=no)"
 if [[ -n "$TRACKED_CHANGES" ]]; then
-  warn "检测到已跟踪文件存在未提交修改，已停止自动更新，避免覆盖你的本地改动："
-  git status --short
-  exit 1
+  if [[ "$AUTO_STASH" == "1" || "$AUTO_STASH" == "true" ]]; then
+    warn "检测到已跟踪文件存在未提交修改，准备自动暂存后继续更新："
+    git status --short
+    run git stash push -m "redeploy-auto-stash-$(date +%Y%m%d-%H%M%S)"
+    STASHED_CHANGES=1
+  else
+    warn "检测到已跟踪文件存在未提交修改，已停止自动更新，避免覆盖你的本地改动："
+    git status --short
+    warn "如确认这些修改需要保留，可使用 AUTO_STASH=1 自动暂存后继续部署"
+    exit 1
+  fi
 fi
 
 info "项目目录: $PROJECT_DIR"
@@ -88,6 +98,14 @@ info "更新前本地提交: $LOCAL_SHA"
 info "远程目标提交:   $REMOTE_SHA"
 
 run git pull --ff-only "$GIT_REMOTE" "$GIT_BRANCH"
+
+if [[ "$STASHED_CHANGES" == "1" ]]; then
+  info "恢复刚才自动暂存的本地修改"
+  if ! git stash pop; then
+    error "自动恢复本地修改时发生冲突，请手动处理（你的修改仍保存在 git stash 中）"
+    exit 1
+  fi
+fi
 
 if [[ ! -f config.yaml && -f config.yaml.example ]]; then
   warn "未检测到 config.yaml，已从示例文件复制一份，请按需修改配置"

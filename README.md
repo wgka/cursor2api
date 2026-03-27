@@ -123,6 +123,14 @@ chmod +x redeploy.sh
 - 若未检测到 Docker Compose，则回退为 `npm ci && npm run build && pm2 restart/start`
 - 如果有已跟踪文件的本地修改，脚本会停止，避免把你的服务器改动直接覆盖掉
 
+如服务器上保留了本地改动（例如自定义 `Dockerfile`），可使用自动暂存模式：
+
+```bash
+AUTO_STASH=1 ./redeploy.sh
+```
+
+脚本会先 `git stash` 本地修改，拉取最新代码后再自动恢复；若恢复时有冲突，会停止并提示你手动处理。
+
 ### 4. 配合 Claude Code 使用
 
 ```bash
